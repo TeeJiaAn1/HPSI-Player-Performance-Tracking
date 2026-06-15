@@ -1,11 +1,13 @@
 import pandas as pd
+import numpy as np
 import streamlit as st
 
 # Google Sheets -> Excel export URL
 SHEET_ID = "1At6UmzaaCc9VYC1lLzs39wJQOcIDwHcyGFsHMp4JPGw"
 EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
 
-@st.cache_data
+
+@st.cache_data(ttl="15m")
 def load_data_from_gsheet() -> pd.DataFrame:
     # Read the whole Google Sheets workbook as an Excel file over HTTP
     xls = pd.ExcelFile(EXCEL_URL)
@@ -33,6 +35,7 @@ def load_data_from_gsheet() -> pd.DataFrame:
         "Player_Serve_Win_pct",
         "Player_Pressure_Pts_Won_pct",
         "Total_player_Pts_won_pct",
+        "Opponent_Serve_Loss_pct",  # points player wins on opponent serve
     ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -130,6 +133,7 @@ metric_cols = [
     "Total_player_Pts_won_pct",
     "Player_Serve_Win_pct",
     "Player_Pressure_Pts_Won_pct",
+    "Opponent_Serve_Loss_pct",
 ]
 avail_metrics = [c for c in metric_cols if c in filtered.columns]
 
@@ -146,10 +150,65 @@ if avail_metrics:
 else:
     st.info("No numeric performance metrics available for this selection.")
 
-# --- Time-series plots for selected metrics ---
-st.subheader("Trend across matches")
+# --- Helper to plot metric with a simple trendline ---
+def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, title: str, y_label: str):
+    if metric_col not in df_subset.columns:
+        st.info(f"{metric_col} not found in data.")
+        return
+
+    d = df_subset[["Date", metric_col]].dropna().sort_values("Date").copy()
+    if d.empty:
+        st.info(f"No data available for {metric_col} under current filters.")
+        return
+
+    # Build simple linear trendline
+    x = np.arange(len(d), dtype=float)
+    y = d[metric_col].values.astype(float)
+
+    if len(y) >= 2 and not np.allclose(y, y[0]):
+        coef = np.polyfit(x, y, 1)
+        d["Trend"] = coef[0] * x + coef[1]
+    else:
+        # If only one point or constant values, trend == actual
+        d["Trend"] = y
+
+    d = d.set_index("Date")
+
+    st.line_chart(d[[metric_col, "Trend"]])
+    st.caption("Solid line = metric, second line = simple linear trend.")
+
+# --- Automatic time-series charts for key metrics ---
+st.subheader("Automatic time-series charts (per match)")
 
 filtered = filtered.sort_values("Date")
+
+st.markdown("**Short rally distribution (%) over time**")
+plot_metric_with_trend(
+    filtered,
+    "Rally_ShortDistribution_pct",
+    title=f"{player} – Short rally distribution (%) over time",
+    y_label="Short rally %",
+)
+
+st.markdown("**Player serve win rate (%) over time**")
+plot_metric_with_trend(
+    filtered,
+    "Player_Serve_Win_pct",
+    title=f"{player} – Serve win rate (%) over time",
+    y_label="Player serve win %",
+)
+
+st.markdown("**Points won on opponent's serve (%) over time**")
+plot_metric_with_trend(
+    filtered,
+    "Opponent_Serve_Loss_pct",
+    title=f"{player} – Points won on opponent's serve (%) over time",
+    y_label="Opponent serve loss %",
+)
+
+# --- Optional: interactive time-series for any metric ---
+st.subheader("Custom trend across matches")
+
 filtered["Match_label"] = (
     filtered["Date"].dt.strftime("%Y-%m-%d") + " | " +
     filtered["Competition"].astype(str) + " vs " +
