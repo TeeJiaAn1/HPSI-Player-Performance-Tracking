@@ -250,18 +250,27 @@ if all(c in filtered.columns for c in serve_cols):
             xOffset="Metric_label:N"
         )
 
-        # Trendlines per metric across matches
-        lines = alt.Chart(melted).transform_regression(
-            "Match_index", "Percentage",
-            groupby=["Metric_label"],
-            method="linear",
-        ).mark_line().encode(
-            x=alt.X(
-                "DateLabel:N",
-                sort=None,
-            ),
-            y="Percentage:Q",
-            color="Metric_label:N",
+        # ---- Compute trendlines in pandas ----
+        trend_rows = []
+        for metric_name, sub in melted.groupby("Metric_label"):
+            sub = sub.sort_values("Match_index")
+            x = sub["Match_index"].values.astype(float)
+            y = sub["Percentage"].values.astype(float)
+
+            if len(y) >= 2 and not np.allclose(y, y[0]):
+                coef = np.polyfit(x, y, 1)
+                sub["Trend"] = coef[0] * x + coef[1]
+            else:
+                sub["Trend"] = y  # flat line if single/constant
+
+            trend_rows.append(sub[["DateLabel", "Metric_label", "Trend"]])
+
+        trend_df = pd.concat(trend_rows, ignore_index=True)
+
+        lines = alt.Chart(trend_df).mark_line().encode(
+            x=alt.X("DateLabel:N", sort=None),
+            y=alt.Y("Trend:Q"),
+            color=alt.Color("Metric_label:N"),
         )
 
         serve_chart = (bars + lines).properties(
@@ -274,7 +283,7 @@ if all(c in filtered.columns for c in serve_cols):
         st.info("No serve data available under current filters.")
 else:
     st.info("Serve columns not found in data.")
-
+    
 # --- Optional: interactive time-series for any metric ---
 st.subheader("Custom trend across matches")
 
