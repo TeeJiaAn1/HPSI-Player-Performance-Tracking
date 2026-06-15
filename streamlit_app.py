@@ -200,19 +200,22 @@ plot_metric_with_trend(
     y_label="Long rally %",
 )
 
-# --- Combined serve chart: grouped monthly bars + trendlines using Altair ---
+# --- Combined serve chart: grouped bars per match + trendlines using Altair ---
 st.subheader("Serve performance over time")
 
 serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
 if all(c in filtered.columns for c in serve_cols):
     serve_df = filtered[["Date", "Competition", "Opponent"] + serve_cols].dropna().copy()
     if not serve_df.empty:
-        # Month key for aggregation
-        serve_df["YearMonth"] = serve_df["Date"].dt.to_period("M").dt.to_timestamp()
+        # Label each match by its exact date (string) so x is discrete
+        serve_df = serve_df.sort_values("Date")
+        serve_df["DateLabel"] = serve_df["Date"].dt.strftime("%Y-%m-%d")
+        # Match index for regression (trendline)
+        serve_df["Match_index"] = np.arange(len(serve_df), dtype=float)
 
         # Long format
         melted = serve_df.melt(
-            id_vars=["YearMonth", "Competition", "Opponent"],
+            id_vars=["DateLabel", "Match_index", "Competition", "Opponent"],
             value_vars=serve_cols,
             var_name="Metric",
             value_name="Percentage",
@@ -224,43 +227,38 @@ if all(c in filtered.columns for c in serve_cols):
         }
         melted["Metric_label"] = melted["Metric"].map(metric_labels)
 
-        # Monthly averages (still keep one row per metric per month)
-        monthly = (
-            melted.groupby(["YearMonth", "Metric_label"], as_index=False)["Percentage"]
-            .mean()
-        )
-
-        # Order index per metric for trendlines
-        monthly = monthly.sort_values("YearMonth")
-        monthly["order"] = monthly.groupby("Metric_label").cumcount().astype(float)
-
-        base = alt.Chart(monthly).encode(
+        base = alt.Chart(melted).encode(
             x=alt.X(
-                "YearMonth:T",
-                title="Month",
-                axis=alt.Axis(format="%b", labelAngle=0),  # Jan, Feb, Mar...
+                "DateLabel:N",
+                title="Match date",
+                sort=None,
+                axis=alt.Axis(labelAngle=-45),
             ),
             y=alt.Y("Percentage:Q", title="Percentage"),
             color=alt.Color("Metric_label:N", title="Metric"),
             tooltip=[
-                alt.Tooltip("YearMonth:T", title="Month"),
+                alt.Tooltip("DateLabel:N", title="Date"),
+                alt.Tooltip("Competition:N"),
+                alt.Tooltip("Opponent:N"),
                 alt.Tooltip("Metric_label:N", title="Metric"),
                 alt.Tooltip("Percentage:Q", format=".1f"),
             ],
         )
 
-        # Side-by-side bars per month (one light, one dark)
-        bars = base.mark_bar(opacity=0.75, size=20).encode(
+        # Side-by-side bars per match (one light, one dark)
+        bars = base.mark_bar(opacity=0.75, width=20).encode(
             xOffset="Metric_label:N"
         )
 
-        # Trendlines per metric across months
-        lines = alt.Chart(monthly).transform_regression(
-            "order", "Percentage", groupby=["Metric_label"], method="linear"
+        # Trendlines per metric across matches
+        lines = alt.Chart(melted).transform_regression(
+            "Match_index", "Percentage",
+            groupby=["Metric_label"],
+            method="linear",
         ).mark_line().encode(
             x=alt.X(
-                "YearMonth:T",
-                axis=alt.Axis(format="%b", labelAngle=0),
+                "DateLabel:N",
+                sort=None,
             ),
             y="Percentage:Q",
             color="Metric_label:N",
@@ -268,7 +266,7 @@ if all(c in filtered.columns for c in serve_cols):
 
         serve_chart = (bars + lines).properties(
             height=320,
-            title="Player serve win % vs points won on opponent's serve % (monthly average)",
+            title="Player serve win % vs points won on opponent's serve %",
         )
 
         st.altair_chart(serve_chart, use_container_width=True)
