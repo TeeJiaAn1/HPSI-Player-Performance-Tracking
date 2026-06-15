@@ -35,10 +35,14 @@ def load_data_from_gsheet() -> pd.DataFrame:
         "Player_Serve_Win_pct",
         "Player_Pressure_Pts_Won_pct",
         "Total_player_Pts_won_pct",
-        "Opponent_Serve_Loss_pct",  # points player wins on opponent serve
-    ]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+        "Opponent_Serve_Loss_pct",
+        "Player_UFE",
+        "Player_FE",
+        "Player_Pressured_UFE",
+        "Player_%Point_Gained",
+]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
@@ -266,6 +270,37 @@ if all(c in filtered.columns for c in serve_cols):
         bars = base.mark_bar(opacity=0.75, width=20).encode(
             xOffset="Metric_label:N"
         )
+
+# --- Detailed error and point-gain profiles ---
+st.subheader("Error and point-gain profiles over time")
+
+st.markdown("**Player unforced errors per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_UFE",
+    y_label="Unforced errors (count)",
+)
+
+st.markdown("**Player forced errors per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_FE",
+    y_label="Forced errors (count)",
+)
+
+st.markdown("**Player pressured unforced errors per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_Pressured_UFE",
+    y_label="Pressured unforced errors (count)",
+)
+
+st.markdown("**Player % point gained per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_%Point_Gained",
+    y_label="% points gained",
+)
 
         # ---- Compute trendlines in pandas ----
         trend_rows = []
