@@ -200,6 +200,23 @@ plot_metric_with_trend(
     y_label="Long rally %",
 )
 
+# --- Work–rest time-series ---
+st.subheader("Work–rest time-series")
+
+st.markdown("**Average rally duration (s) over time**")
+plot_metric_with_trend(
+    filtered,
+    "Average_Rally_Duration",
+    y_label="Average rally duration (s)",
+)
+
+st.markdown("**Average rest duration (s) over time**")
+plot_metric_with_trend(
+    filtered,
+    "Average_Rest_Duration",
+    y_label="Average rest duration (s)",
+)
+
 # --- Combined serve chart: grouped bars per match + trendlines using Altair ---
 st.subheader("Serve performance over time")
 
