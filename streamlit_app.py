@@ -200,32 +200,37 @@ plot_metric_with_trend(
     y_label="Long rally %",
 )
 
-# --- Combined serve chart: bars + trendlines using Altair ---
+# --- Combined serve chart: grouped bars + trendlines using Altair ---
 st.subheader("Serve performance over time")
 
 serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
 if all(c in filtered.columns for c in serve_cols):
     serve_df = filtered[["Date", "Competition", "Opponent"] + serve_cols].dropna().copy()
     if not serve_df.empty:
+        # Melt into long format
         melted = serve_df.melt(
             id_vars=["Date", "Competition", "Opponent"],
             value_vars=serve_cols,
             var_name="Metric",
             value_name="Percentage",
         )
+
         metric_labels = {
             "Player_Serve_Win_pct": "Player serve win %",
             "Opponent_Serve_Loss_pct": "Points won on opponent's serve %",
         }
         melted["Metric_label"] = melted["Metric"].map(metric_labels)
 
-        # Add an index per date for trendline computation
+        # Order index for regression (trendlines)
         melted = melted.sort_values("Date")
         melted["order"] = melted.groupby("Metric_label").cumcount().astype(float)
 
-        # Compute trendlines via regression in Altair
         base = alt.Chart(melted).encode(
-            x=alt.X("Date:T", title="Date"),
+            x=alt.X(
+                "Date:T",
+                title="Month",
+                axis=alt.Axis(format="%b", labelAngle=0),  # show only month name
+            ),
             y=alt.Y("Percentage:Q", title="Percentage"),
             color=alt.Color("Metric_label:N", title="Metric"),
             tooltip=[
@@ -237,11 +242,22 @@ if all(c in filtered.columns for c in serve_cols):
             ],
         )
 
-        bars = base.mark_bar(opacity=0.6)
+        # Side‑by‑side bars (grouped by date, offset by metric)
+        bars = base.mark_bar(opacity=0.7, size=10).encode(
+            xOffset="Metric_label:N"
+        )
 
-        lines = base.mark_line(point=True).transform_regression(
+        # Separate trendline for each metric using the order index
+        lines = alt.Chart(melted).transform_regression(
             "order", "Percentage", groupby=["Metric_label"], method="linear"
-        ).encode(x="Date:T")
+        ).mark_line().encode(
+            x=alt.X(
+                "Date:T",
+                axis=alt.Axis(format="%b", labelAngle=0),
+            ),
+            y="Percentage:Q",
+            color="Metric_label:N",
+        )
 
         serve_chart = (bars + lines).properties(
             height=320,
