@@ -73,12 +73,22 @@ if filter_mode == "Last X months":
     filtered = player_df[player_df["Date"] >= cutoff]
 
 elif filter_mode == "Last N competitions":
-    n_comp = st.sidebar.slider("Number of competitions", 1, 10, 3)
+    # competitions ordered from most recent to oldest
     comps_ordered = (
         player_df.sort_values("Date", ascending=False)["Competition"]
         .dropna()
         .unique()
     )
+    max_comp = int(len(comps_ordered))          # total competitions for this player
+    default_n = min(10, max_comp)               # nice default
+
+    n_comp = st.sidebar.slider(
+        "Number of competitions",
+        min_value=1,
+        max_value=max_comp,                     # scale matches actual number
+        value=default_n,
+    )
+
     selected_comps = comps_ordered[:n_comp]
     filtered = player_df[player_df["Competition"].isin(selected_comps)]
 
