@@ -2,8 +2,8 @@ import pandas as pd
 import streamlit as st
 
 # Google Sheets -> Excel export URL
-SHEET_ID = "1At6UmzaaCc9VYC1lLzs39wJQOcIDwHcyGFsHMp4JPGw"
-EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
+SHEET_ID = ""
+EXCEL_URL = f""
 
 @st.cache_data
 def load_data_from_gsheet() -> pd.DataFrame:
