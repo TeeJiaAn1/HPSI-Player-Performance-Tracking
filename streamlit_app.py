@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
+import altair as alt
 
 # Google Sheets -> Excel export URL
 SHEET_ID = "1At6UmzaaCc9VYC1lLzs39wJQOcIDwHcyGFsHMp4JPGw"
@@ -9,7 +10,6 @@ EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xl
 
 @st.cache_data(ttl="15m")
 def load_data_from_gsheet() -> pd.DataFrame:
-    # Read the whole Google Sheets workbook as an Excel file over HTTP
     xls = pd.ExcelFile(EXCEL_URL)
 
     dfs = []
@@ -150,8 +150,8 @@ if avail_metrics:
 else:
     st.info("No numeric performance metrics available for this selection.")
 
-# --- Helper to plot metric with a simple trendline ---
-def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, title: str, y_label: str):
+# Helper: metric + simple trendline using numpy
+def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, y_label: str):
     if metric_col not in df_subset.columns:
         st.info(f"{metric_col} not found in data.")
         return
@@ -161,7 +161,6 @@ def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, title: str,
         st.info(f"No data available for {metric_col} under current filters.")
         return
 
-    # Build simple linear trendline
     x = np.arange(len(d), dtype=float)
     y = d[metric_col].values.astype(float)
 
@@ -169,42 +168,91 @@ def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, title: str,
         coef = np.polyfit(x, y, 1)
         d["Trend"] = coef[0] * x + coef[1]
     else:
-        # If only one point or constant values, trend == actual
         d["Trend"] = y
 
     d = d.set_index("Date")
-
     st.line_chart(d[[metric_col, "Trend"]])
     st.caption("Solid line = metric, second line = simple linear trend.")
 
-# --- Automatic time-series charts for key metrics ---
-st.subheader("Automatic time-series charts (per match)")
-
+# --- Automatic time-series charts for rally distributions ---
 filtered = filtered.sort_values("Date")
+
+st.subheader("Rally distribution time-series")
 
 st.markdown("**Short rally distribution (%) over time**")
 plot_metric_with_trend(
     filtered,
     "Rally_ShortDistribution_pct",
-    title=f"{player} – Short rally distribution (%) over time",
     y_label="Short rally %",
 )
 
-st.markdown("**Player serve win rate (%) over time**")
+st.markdown("**Medium rally distribution (%) over time**")
 plot_metric_with_trend(
     filtered,
-    "Player_Serve_Win_pct",
-    title=f"{player} – Serve win rate (%) over time",
-    y_label="Player serve win %",
+    "Rally_MidDistribution_pct",
+    y_label="Medium rally %",
 )
 
-st.markdown("**Points won on opponent's serve (%) over time**")
+st.markdown("**Long rally distribution (%) over time**")
 plot_metric_with_trend(
     filtered,
-    "Opponent_Serve_Loss_pct",
-    title=f"{player} – Points won on opponent's serve (%) over time",
-    y_label="Opponent serve loss %",
+    "Rally_LongDistribution_pct",
+    y_label="Long rally %",
 )
+
+# --- Combined serve chart: bars + trendlines using Altair ---
+st.subheader("Serve performance over time")
+
+serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
+if all(c in filtered.columns for c in serve_cols):
+    serve_df = filtered[["Date", "Competition", "Opponent"] + serve_cols].dropna().copy()
+    if not serve_df.empty:
+        melted = serve_df.melt(
+            id_vars=["Date", "Competition", "Opponent"],
+            value_vars=serve_cols,
+            var_name="Metric",
+            value_name="Percentage",
+        )
+        metric_labels = {
+            "Player_Serve_Win_pct": "Player serve win %",
+            "Opponent_Serve_Loss_pct": "Points won on opponent's serve %",
+        }
+        melted["Metric_label"] = melted["Metric"].map(metric_labels)
+
+        # Add an index per date for trendline computation
+        melted = melted.sort_values("Date")
+        melted["order"] = melted.groupby("Metric_label").cumcount().astype(float)
+
+        # Compute trendlines via regression in Altair
+        base = alt.Chart(melted).encode(
+            x=alt.X("Date:T", title="Date"),
+            y=alt.Y("Percentage:Q", title="Percentage"),
+            color=alt.Color("Metric_label:N", title="Metric"),
+            tooltip=[
+                alt.Tooltip("Date:T"),
+                alt.Tooltip("Competition:N"),
+                alt.Tooltip("Opponent:N"),
+                alt.Tooltip("Metric_label:N", title="Metric"),
+                alt.Tooltip("Percentage:Q", format=".1f"),
+            ],
+        )
+
+        bars = base.mark_bar(opacity=0.6)
+
+        lines = base.mark_line(point=True).transform_regression(
+            "order", "Percentage", groupby=["Metric_label"], method="linear"
+        ).encode(x="Date:T")
+
+        serve_chart = (bars + lines).properties(
+            height=320,
+            title="Player serve win % vs points won on opponent's serve %",
+        )
+
+        st.altair_chart(serve_chart, use_container_width=True)
+    else:
+        st.info("No serve data available under current filters.")
+else:
+    st.info("Serve columns not found in data.")
 
 # --- Optional: interactive time-series for any metric ---
 st.subheader("Custom trend across matches")
