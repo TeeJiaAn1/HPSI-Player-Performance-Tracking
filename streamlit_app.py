@@ -1,17 +1,21 @@
 import pandas as pd
 import streamlit as st
-from pathlib import Path
 
-DATA_PATH = Path("HPSI-Badminton-Performance-Tracking.xlsx")
+# Google Sheets -> Excel export URL
+SHEET_ID = "1At6UmzaaCc9VYC1lLzs39wJQOcIDwHcyGFsHMp4JPGw"
+EXCEL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
 
 @st.cache_data
-def load_data(path: Path) -> pd.DataFrame:
-    xls = pd.ExcelFile(path)
+def load_data_from_gsheet() -> pd.DataFrame:
+    # Read the whole Google Sheets workbook as an Excel file over HTTP
+    xls = pd.ExcelFile(EXCEL_URL)
+
     dfs = []
     for sheet in xls.sheet_names:
-        df = pd.read_excel(path, sheet_name=sheet)
+        df = pd.read_excel(xls, sheet_name=sheet)
         df["Season"] = sheet
         dfs.append(df)
+
     df = pd.concat(dfs, ignore_index=True)
 
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
@@ -32,10 +36,11 @@ def load_data(path: Path) -> pd.DataFrame:
     ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+
     return df
 
 
-df = load_data(DATA_PATH)
+df = load_data_from_gsheet()
 
 st.title("HPSI Badminton Performance Explorer")
 
@@ -148,7 +153,6 @@ ts_metric = st.selectbox(
 )
 
 if ts_metric:
-    # Use Match_label as index for nicer x-axis
     ts_df = filtered.set_index("Match_label")[[ts_metric]]
     st.line_chart(ts_df)
 
