@@ -200,16 +200,19 @@ plot_metric_with_trend(
     y_label="Long rally %",
 )
 
-# --- Combined serve chart: grouped bars + trendlines using Altair ---
+# --- Combined serve chart: grouped monthly bars + trendlines using Altair ---
 st.subheader("Serve performance over time")
 
 serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
 if all(c in filtered.columns for c in serve_cols):
     serve_df = filtered[["Date", "Competition", "Opponent"] + serve_cols].dropna().copy()
     if not serve_df.empty:
-        # Melt into long format
+        # Month key for aggregation
+        serve_df["YearMonth"] = serve_df["Date"].dt.to_period("M").dt.to_timestamp()
+
+        # Long format
         melted = serve_df.melt(
-            id_vars=["Date", "Competition", "Opponent"],
+            id_vars=["YearMonth", "Competition", "Opponent"],
             value_vars=serve_cols,
             var_name="Metric",
             value_name="Percentage",
@@ -221,38 +224,42 @@ if all(c in filtered.columns for c in serve_cols):
         }
         melted["Metric_label"] = melted["Metric"].map(metric_labels)
 
-        # Order index for regression (trendlines)
-        melted = melted.sort_values("Date")
-        melted["order"] = melted.groupby("Metric_label").cumcount().astype(float)
+        # Monthly averages (still keep one row per metric per month)
+        monthly = (
+            melted.groupby(["YearMonth", "Metric_label"], as_index=False)["Percentage"]
+            .mean()
+        )
 
-        base = alt.Chart(melted).encode(
+        # Order index per metric for trendlines
+        monthly = monthly.sort_values("YearMonth")
+        monthly["order"] = monthly.groupby("Metric_label").cumcount().astype(float)
+
+        base = alt.Chart(monthly).encode(
             x=alt.X(
-                "Date:T",
+                "YearMonth:T",
                 title="Month",
-                axis=alt.Axis(format="%b", labelAngle=0),  # show only month name
+                axis=alt.Axis(format="%b", labelAngle=0),  # Jan, Feb, Mar...
             ),
             y=alt.Y("Percentage:Q", title="Percentage"),
             color=alt.Color("Metric_label:N", title="Metric"),
             tooltip=[
-                alt.Tooltip("Date:T"),
-                alt.Tooltip("Competition:N"),
-                alt.Tooltip("Opponent:N"),
+                alt.Tooltip("YearMonth:T", title="Month"),
                 alt.Tooltip("Metric_label:N", title="Metric"),
                 alt.Tooltip("Percentage:Q", format=".1f"),
             ],
         )
 
-        # Side‑by‑side bars (grouped by date, offset by metric)
-        bars = base.mark_bar(opacity=0.7, size=10).encode(
+        # Side-by-side bars per month (one light, one dark)
+        bars = base.mark_bar(opacity=0.75, size=20).encode(
             xOffset="Metric_label:N"
         )
 
-        # Separate trendline for each metric using the order index
-        lines = alt.Chart(melted).transform_regression(
+        # Trendlines per metric across months
+        lines = alt.Chart(monthly).transform_regression(
             "order", "Percentage", groupby=["Metric_label"], method="linear"
         ).mark_line().encode(
             x=alt.X(
-                "Date:T",
+                "YearMonth:T",
                 axis=alt.Axis(format="%b", labelAngle=0),
             ),
             y="Percentage:Q",
@@ -261,7 +268,7 @@ if all(c in filtered.columns for c in serve_cols):
 
         serve_chart = (bars + lines).properties(
             height=320,
-            title="Player serve win % vs points won on opponent's serve %",
+            title="Player serve win % vs points won on opponent's serve % (monthly average)",
         )
 
         st.altair_chart(serve_chart, use_container_width=True)
