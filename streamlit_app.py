@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-import plotly.express as px
 from pathlib import Path
 
 DATA_PATH = Path("HPSI-Badminton-Performance-Tracking.xlsx")
@@ -17,10 +16,10 @@ def load_data(path: Path) -> pd.DataFrame:
 
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-    # Basic result flag: 1 if Player won, 0 if Opponent won
+    # 1 if Player_SGP won, 0 if opponent won
     df["Result_win"] = (df["Winner"] == "Player").astype("int")
 
-    # Clean some metric columns (if they exist)
+    # Clean numeric metric columns if present
     for col in [
         "Average_Rally_Duration",
         "Average_Rest_Duration",
@@ -34,6 +33,7 @@ def load_data(path: Path) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
+
 
 df = load_data(DATA_PATH)
 
@@ -100,7 +100,10 @@ win_rate = filtered["Result_win"].mean() * 100
 col1, col2, col3 = st.columns(3)
 col1.metric("Matches", n_matches)
 col2.metric("Win rate (%)", f"{win_rate:.1f}")
-col3.metric("Date range", f"{filtered['Date'].min().date()} → {filtered['Date'].max().date()}")
+col3.metric(
+    "Date range",
+    f"{filtered['Date'].min().date()} → {filtered['Date'].max().date()}"
+)
 
 # --- Key averages ---
 metric_cols = [
@@ -117,7 +120,13 @@ avail_metrics = [c for c in metric_cols if c in filtered.columns]
 
 if avail_metrics:
     st.subheader("Average match statistics (filtered set)")
-    avg_stats = filtered[avail_metrics].mean().to_frame("Average").reset_index().rename(columns={"index": "Metric"})
+    avg_stats = (
+        filtered[avail_metrics]
+        .mean()
+        .to_frame("Average")
+        .reset_index()
+        .rename(columns={"index": "Metric"})
+    )
     st.dataframe(avg_stats, use_container_width=True)
 else:
     st.info("No numeric performance metrics available for this selection.")
@@ -125,7 +134,6 @@ else:
 # --- Time-series plots for selected metrics ---
 st.subheader("Trend across matches")
 
-# Build a match label for x-axis
 filtered = filtered.sort_values("Date")
 filtered["Match_label"] = (
     filtered["Date"].dt.strftime("%Y-%m-%d") + " | " +
@@ -133,21 +141,16 @@ filtered["Match_label"] = (
     filtered["Opponent"].astype(str)
 )
 
+ts_metric_options = [m for m in avail_metrics if filtered[m].notna().any()]
 ts_metric = st.selectbox(
     "Metric to plot vs matches",
-    [m for m in avail_metrics if filtered[m].notna().any()],
+    ts_metric_options,
 )
 
 if ts_metric:
-    fig = px.line(
-        filtered,
-        x="Match_label",
-        y=ts_metric,
-        markers=True,
-        title=f"{ts_metric} across matches",
-    )
-    fig.update_layout(xaxis_title="Match (chronological)", yaxis_title=ts_metric)
-    st.plotly_chart(fig, use_container_width=True)
+    # Use Match_label as index for nicer x-axis
+    ts_df = filtered.set_index("Match_label")[[ts_metric]]
+    st.line_chart(ts_df)
 
 # --- Rally length distribution (aggregated) ---
 dist_cols = [
@@ -155,6 +158,7 @@ dist_cols = [
     "Rally_MidDistribution_pct",
     "Rally_LongDistribution_pct",
 ]
+
 if all(col in filtered.columns for col in dist_cols):
     st.subheader("Rally length distribution (averaged over filtered matches)")
     dist_means = filtered[dist_cols].mean()
@@ -167,17 +171,8 @@ if all(col in filtered.columns for col in dist_cols):
                 dist_means["Rally_LongDistribution_pct"],
             ],
         }
-    )
-    fig_dist = px.bar(
-        dist_df,
-        x="Rally_length",
-        y="Percentage",
-        text="Percentage",
-        title="Average rally length distribution",
-    )
-    fig_dist.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    fig_dist.update_layout(yaxis_title="%", xaxis_title="Rally length")
-    st.plotly_chart(fig_dist, use_container_width=True)
+    ).set_index("Rally_length")
+    st.bar_chart(dist_df)
 
 # --- Opponent-specific profile (when relevant) ---
 if filter_mode == "Specific opponent":
@@ -200,19 +195,18 @@ if filter_mode == "Specific opponent":
     comp_df = pd.concat([opp_stats, other_stats], ignore_index=True)
 
     st.write("Average metrics vs selected opponent vs all other opponents.")
-    st.dataframe(comp_df.pivot(index="Metric", columns="Group", values="Value"), use_container_width=True)
+    st.dataframe(
+        comp_df.pivot(index="Metric", columns="Group", values="Value"),
+        use_container_width=True,
+    )
 
     metric_for_bar = st.selectbox(
         "Metric to compare vs opponent vs all others",
         comp_metrics,
     )
-    comp_sub = comp_df[comp_df["Metric"] == metric_for_bar]
-    fig_comp = px.bar(
-        comp_sub,
-        x="Group",
-        y="Value",
-        text="Value",
-        title=f"{metric_for_bar}: vs {opponent} vs all other opponents",
+
+    comp_sub = (
+        comp_df[comp_df["Metric"] == metric_for_bar]
+        .set_index("Group")[["Value"]]
     )
-    fig_comp.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-    st.plotly_chart(fig_comp, use_container_width=True)
+    st.bar_chart(comp_sub)
