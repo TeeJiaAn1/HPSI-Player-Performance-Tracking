@@ -40,9 +40,9 @@ def load_data_from_gsheet() -> pd.DataFrame:
         "Player_FE",
         "Player_Pressured_UFE",
         "Player_%Point_Gained",
-]:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    ]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
@@ -154,6 +154,7 @@ if avail_metrics:
 else:
     st.info("No numeric performance metrics available for this selection.")
 
+
 # Helper: metric + simple trendline using numpy
 def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, y_label: str):
     if metric_col not in df_subset.columns:
@@ -177,6 +178,7 @@ def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, y_label: st
     d = d.set_index("Date")
     st.line_chart(d[[metric_col, "Trend"]])
     st.caption("Solid line = metric, second line = simple linear trend.")
+
 
 # --- Automatic time-series charts for rally distributions ---
 filtered = filtered.sort_values("Date")
@@ -204,6 +206,7 @@ plot_metric_with_trend(
     y_label="Long rally %",
 )
 
+
 # --- Work–rest time-series ---
 st.subheader("Work–rest time-series")
 
@@ -220,6 +223,7 @@ plot_metric_with_trend(
     "Average_Rest_Duration",
     y_label="Average rest duration (s)",
 )
+
 
 # --- Combined serve chart: grouped bars per match + trendlines using Altair ---
 st.subheader("Serve performance over time")
@@ -271,37 +275,6 @@ if all(c in filtered.columns for c in serve_cols):
             xOffset="Metric_label:N"
         )
 
-# --- Detailed error and point-gain profiles ---
-st.subheader("Error and point-gain profiles over time")
-
-st.markdown("**Player unforced errors per match**")
-plot_metric_with_trend(
-    filtered,
-    "Player_UFE",
-    y_label="Unforced errors (count)",
-)
-
-st.markdown("**Player forced errors per match**")
-plot_metric_with_trend(
-    filtered,
-    "Player_FE",
-    y_label="Forced errors (count)",
-)
-
-st.markdown("**Player pressured unforced errors per match**")
-plot_metric_with_trend(
-    filtered,
-    "Player_Pressured_UFE",
-    y_label="Pressured unforced errors (count)",
-)
-
-st.markdown("**Player % point gained per match**")
-plot_metric_with_trend(
-    filtered,
-    "Player_%Point_Gained",
-    y_label="% points gained",
-)
-
         # ---- Compute trendlines in pandas ----
         trend_rows = []
         for metric_name, sub in melted.groupby("Metric_label"):
@@ -335,7 +308,40 @@ plot_metric_with_trend(
         st.info("No serve data available under current filters.")
 else:
     st.info("Serve columns not found in data.")
-    
+
+
+# --- Detailed error and point-gain profiles ---
+st.subheader("Error and point-gain profiles over time")
+
+st.markdown("**Player unforced errors per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_UFE",
+    y_label="Unforced errors (count)",
+)
+
+st.markdown("**Player forced errors per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_FE",
+    y_label="Forced errors (count)",
+)
+
+st.markdown("**Player pressured unforced errors per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_Pressured_UFE",
+    y_label="Pressured unforced errors (count)",
+)
+
+st.markdown("**Player % point gained per match**")
+plot_metric_with_trend(
+    filtered,
+    "Player_%Point_Gained",
+    y_label="% points gained",
+)
+
+
 # --- Optional: interactive time-series for any metric ---
 st.subheader("Custom trend across matches")
 
@@ -354,6 +360,7 @@ ts_metric = st.selectbox(
 if ts_metric:
     ts_df = filtered.set_index("Match_label")[[ts_metric]]
     st.line_chart(ts_df)
+
 
 # --- Rally length distribution (aggregated) ---
 dist_cols = [
@@ -376,6 +383,7 @@ if all(col in filtered.columns for col in dist_cols):
         }
     ).set_index("Rally_length")
     st.bar_chart(dist_df)
+
 
 # --- Opponent-specific profile (when relevant) ---
 if filter_mode == "Specific opponent":
