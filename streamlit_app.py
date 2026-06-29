@@ -80,19 +80,18 @@ if filter_mode == "Last X months":
     filtered = player_df[player_df["Date"] >= cutoff]
 
 elif filter_mode == "Last N competitions":
-    # competitions ordered from most recent to oldest
     comps_ordered = (
         player_df.sort_values("Date", ascending=False)["Competition"]
         .dropna()
         .unique()
     )
-    max_comp = int(len(comps_ordered))          # total competitions for this player
-    default_n = min(10, max_comp)               # nice default
+    max_comp = int(len(comps_ordered))
+    default_n = min(10, max_comp)
 
     n_comp = st.sidebar.slider(
         "Number of competitions",
         min_value=1,
-        max_value=max_comp,                     # scale matches actual number
+        max_value=max_comp,
         value=default_n,
     )
 
@@ -115,6 +114,8 @@ st.subheader(f"Match summary for {player}")
 if filtered.empty:
     st.warning("No matches found with the current filters.")
     st.stop()
+
+filtered = filtered.sort_values("Date").copy()
 
 n_matches = len(filtered)
 win_rate = filtered["Result_win"].mean() * 100
@@ -180,9 +181,7 @@ def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, y_label: st
     st.caption("Solid line = metric, second line = simple linear trend.")
 
 
-# --- Automatic time-series charts for rally distributions ---
-filtered = filtered.sort_values("Date")
-
+# --- Rally distribution time-series ---
 st.subheader("Rally distribution time-series")
 
 st.markdown("**Short rally distribution (%) over time**")
@@ -206,7 +205,6 @@ plot_metric_with_trend(
     y_label="Long rally %",
 )
 
-
 # --- Work–rest time-series ---
 st.subheader("Work–rest time-series")
 
@@ -224,23 +222,46 @@ plot_metric_with_trend(
     y_label="Average rest duration (s)",
 )
 
-
-# --- Combined serve chart: grouped bars per match + trendlines using Altair ---
+# --- Combined serve chart: grouped bars per match, colored by win/loss ---
 st.subheader("Serve performance over time")
 
 serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
+
 if all(c in filtered.columns for c in serve_cols):
-    serve_df = filtered[["Date", "Competition", "Opponent"] + serve_cols].dropna().copy()
+    serve_df = filtered[
+        ["Date", "Competition", "Opponent", "Result_win"] + serve_cols
+    ].dropna().copy()
+
     if not serve_df.empty:
-        # Label each match by its exact date (string) so x is discrete
-        serve_df = serve_df.sort_values("Date")
-        serve_df["DateLabel"] = serve_df["Date"].dt.strftime("%Y-%m-%d")
-        # Match index for regression (trendline)
+        serve_df = serve_df.sort_values("Date").reset_index(drop=True)
         serve_df["Match_index"] = np.arange(len(serve_df), dtype=float)
 
-        # Long format
+        serve_df["Match_result"] = np.where(
+            serve_df["Result_win"] == 1,
+            "Win",
+            "Loss"
+        )
+
+        # Create readable x-axis label
+        serve_df["Match_label"] = (
+            serve_df["Opponent"].astype(str) + " | " +
+            serve_df["Competition"].astype(str)
+        )
+
+        # Preserve current filtered order on x-axis
+        match_order = serve_df["Match_label"].tolist()
+
+        # Long format for grouped bars
         melted = serve_df.melt(
-            id_vars=["DateLabel", "Match_index", "Competition", "Opponent"],
+            id_vars=[
+                "Date",
+                "Competition",
+                "Opponent",
+                "Result_win",
+                "Match_result",
+                "Match_index",
+                "Match_label",
+            ],
             value_vars=serve_cols,
             var_name="Metric",
             value_name="Percentage",
@@ -252,33 +273,40 @@ if all(c in filtered.columns for c in serve_cols):
         }
         melted["Metric_label"] = melted["Metric"].map(metric_labels)
 
-        base = alt.Chart(melted).encode(
+        bars = alt.Chart(melted).mark_bar(size=16).encode(
             x=alt.X(
-                "DateLabel:N",
-                title="Match date",
-                sort=None,
-                axis=alt.Axis(labelAngle=-45),
+                "Match_label:N",
+                title="Opponent | Competition",
+                sort=match_order,
+                axis=alt.Axis(labelAngle=-35, labelLimit=220),
             ),
-            y=alt.Y("Percentage:Q", title="Percentage"),
-            color=alt.Color("Metric_label:N", title="Metric"),
+            xOffset=alt.XOffset("Metric_label:N"),
+            y=alt.Y(
+                "Percentage:Q",
+                title="Percentage (%)"
+            ),
+            color=alt.Color(
+                "Match_result:N",
+                title="Match result",
+                scale=alt.Scale(
+                    domain=["Win", "Loss"],
+                    range=["#1f77b4", "#d62728"]
+                ),
+            ),
             tooltip=[
-                alt.Tooltip("DateLabel:N", title="Date"),
-                alt.Tooltip("Competition:N"),
-                alt.Tooltip("Opponent:N"),
+                alt.Tooltip("Date:T", title="Date"),
+                alt.Tooltip("Competition:N", title="Competition"),
+                alt.Tooltip("Opponent:N", title="Opponent"),
+                alt.Tooltip("Match_result:N", title="Result"),
                 alt.Tooltip("Metric_label:N", title="Metric"),
-                alt.Tooltip("Percentage:Q", format=".1f"),
+                alt.Tooltip("Percentage:Q", title="Percentage", format=".1f"),
             ],
         )
 
-        # Side-by-side bars per match (one light, one dark)
-        bars = base.mark_bar(opacity=0.75, width=20).encode(
-            xOffset="Metric_label:N"
-        )
-
-        # ---- Compute trendlines in pandas ----
+        # Trendlines by metric
         trend_rows = []
         for metric_name, sub in melted.groupby("Metric_label"):
-            sub = sub.sort_values("Match_index")
+            sub = sub.sort_values("Match_index").copy()
             x = sub["Match_index"].values.astype(float)
             y = sub["Percentage"].values.astype(float)
 
@@ -286,29 +314,54 @@ if all(c in filtered.columns for c in serve_cols):
                 coef = np.polyfit(x, y, 1)
                 sub["Trend"] = coef[0] * x + coef[1]
             else:
-                sub["Trend"] = y  # flat line if single/constant
+                sub["Trend"] = y
 
-            trend_rows.append(sub[["DateLabel", "Metric_label", "Trend"]])
+            trend_rows.append(
+                sub[["Match_label", "Metric_label", "Trend"]]
+            )
 
         trend_df = pd.concat(trend_rows, ignore_index=True)
 
-        lines = alt.Chart(trend_df).mark_line().encode(
-            x=alt.X("DateLabel:N", sort=None),
+        lines = alt.Chart(trend_df).mark_line(strokeWidth=2).encode(
+            x=alt.X(
+                "Match_label:N",
+                sort=match_order
+            ),
+            xOffset=alt.XOffset("Metric_label:N"),
             y=alt.Y("Trend:Q"),
-            color=alt.Color("Metric_label:N"),
+            detail="Metric_label:N",
+            color=alt.Color(
+                "Metric_label:N",
+                title="Trendline",
+                scale=alt.Scale(
+                    domain=[
+                        "Player serve win %",
+                        "Points won on opponent's serve %",
+                    ],
+                    range=["#0b3c5d", "#ff7f0e"]
+                ),
+            ),
+            tooltip=[
+                alt.Tooltip("Match_label:N", title="Match"),
+                alt.Tooltip("Metric_label:N", title="Trendline"),
+                alt.Tooltip("Trend:Q", title="Trend", format=".1f"),
+            ],
         )
 
         serve_chart = (bars + lines).properties(
-            height=320,
-            title="Player serve win % vs points won on opponent's serve %",
+            height=420,
+            title="Player serve win % vs points won on opponent's serve %"
         )
 
         st.altair_chart(serve_chart, use_container_width=True)
+        st.caption(
+            "Bars are colored by match result: blue = win, red = loss. "
+            "Hover over a bar for full match details."
+        )
     else:
         st.info("No serve data available under current filters.")
 else:
     st.info("Serve columns not found in data.")
-
 
 # --- Detailed error and point-gain profiles ---
 st.subheader("Error and point-gain profiles over time")
@@ -341,7 +394,6 @@ plot_metric_with_trend(
     y_label="% points gained",
 )
 
-
 # --- Optional: interactive time-series for any metric ---
 st.subheader("Custom trend across matches")
 
@@ -352,15 +404,17 @@ filtered["Match_label"] = (
 )
 
 ts_metric_options = [m for m in avail_metrics if filtered[m].notna().any()]
-ts_metric = st.selectbox(
-    "Metric to plot vs matches",
-    ts_metric_options,
-)
 
-if ts_metric:
+if ts_metric_options:
+    ts_metric = st.selectbox(
+        "Metric to plot vs matches",
+        ts_metric_options,
+    )
+
     ts_df = filtered.set_index("Match_label")[[ts_metric]]
     st.line_chart(ts_df)
-
+else:
+    st.info("No plottable metrics available for this filtered selection.")
 
 # --- Rally length distribution (aggregated) ---
 dist_cols = [
@@ -383,7 +437,6 @@ if all(col in filtered.columns for col in dist_cols):
         }
     ).set_index("Rally_length")
     st.bar_chart(dist_df)
-
 
 # --- Opponent-specific profile (when relevant) ---
 if filter_mode == "Specific opponent":
