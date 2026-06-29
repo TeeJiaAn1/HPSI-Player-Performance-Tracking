@@ -199,6 +199,7 @@ def plot_single_rally_bar(df_subset: pd.DataFrame, metric_col: str, chart_title:
         return
 
     chart_df = chart_df.sort_values("Date").reset_index(drop=True)
+    chart_df["Match_index"] = np.arange(len(chart_df), dtype=float)
 
     chart_df["Match_result"] = np.where(
         chart_df["Result_win"] == 1,
@@ -218,7 +219,16 @@ def plot_single_rally_bar(df_subset: pd.DataFrame, metric_col: str, chart_title:
 
     match_order = chart_df["Match_label_axis"].tolist()
 
-    # single-metric chart: blue if won, red if lost
+    # --- compute simple linear trend ---
+    x = chart_df["Match_index"].values.astype(float)
+    y = chart_df[metric_col].values.astype(float)
+
+    if len(y) >= 2 and not np.allclose(y, y[0]):
+        coef = np.polyfit(x, y, 1)
+        chart_df["Trend"] = coef[0] * x + coef[1]
+    else:
+        chart_df["Trend"] = y
+
     bars = alt.Chart(chart_df).mark_bar(size=22).encode(
         x=alt.X(
             "Match_label_axis:N",
@@ -249,13 +259,31 @@ def plot_single_rally_bar(df_subset: pd.DataFrame, metric_col: str, chart_title:
             alt.Tooltip("Match_result:N", title="Match result"),
             alt.Tooltip(f"{metric_col}:Q", title=chart_title, format=".1f"),
         ],
-    ).properties(
+    )
+
+    line = alt.Chart(chart_df).mark_line(
+        color="#222222",
+        strokeWidth=2.5,
+        point=False
+    ).encode(
+        x=alt.X(
+            "Match_label_axis:N",
+            sort=match_order
+        ),
+        y=alt.Y("Trend:Q"),
+        tooltip=[
+            alt.Tooltip("Match_label_full:N", title="Match"),
+            alt.Tooltip("Trend:Q", title="Trend", format=".1f"),
+        ],
+    )
+
+    chart = (bars + line).properties(
         height=320,
         title=chart_title
     )
 
-    st.altair_chart(bars, use_container_width=True)
-    st.caption("Blue = match won, red = match lost.")
+    st.altair_chart(chart, use_container_width=True)
+    st.caption("Blue = match won, red = match lost, black line = trend.")
 
 
 plot_single_rally_bar(
