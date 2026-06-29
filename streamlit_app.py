@@ -222,7 +222,7 @@ plot_metric_with_trend(
     y_label="Average rest duration (s)",
 )
 
-# --- Combined serve chart: grouped bars per match, colored by win/loss + metric shade ---
+# --- Combined serve chart: grouped bars per match, clearer styling ---
 st.subheader("Serve performance over time")
 
 serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
@@ -238,17 +238,15 @@ if all(c in filtered.columns for c in serve_cols):
 
         serve_df["Match_result"] = np.where(
             serve_df["Result_win"] == 1,
-            "Win",
-            "Loss"
+            "Match won",
+            "Match lost"
         )
 
-        # Full label used for tooltip / ordering
         serve_df["Match_label_full"] = (
             serve_df["Opponent"].astype(str) + " | " +
             serve_df["Competition"].astype(str)
         )
 
-        # Shorter display label for x-axis
         serve_df["Match_label_axis"] = (
             serve_df["Opponent"].astype(str) + " | " +
             serve_df["Competition"].astype(str).str.slice(0, 28)
@@ -278,34 +276,22 @@ if all(c in filtered.columns for c in serve_cols):
         }
         melted["Metric_label"] = melted["Metric"].map(metric_labels)
 
-        # Combine result + metric so each gets its own shade
-        melted["Result_metric"] = np.where(
-            melted["Match_result"] == "Win",
-            np.where(
-                melted["Metric_label"] == "Player serve win %",
-                "Win - Player serve win %",
-                "Win - Points won on opponent's serve %"
-            ),
-            np.where(
-                melted["Metric_label"] == "Player serve win %",
-                "Loss - Player serve win %",
-                "Loss - Points won on opponent's serve %"
-            )
+        # Four bar shades, but no legend shown for them
+        melted["Bar_color_group"] = np.select(
+            [
+                (melted["Match_result"] == "Match won") & (melted["Metric_label"] == "Player serve win %"),
+                (melted["Match_result"] == "Match won") & (melted["Metric_label"] == "Points won on opponent's serve %"),
+                (melted["Match_result"] == "Match lost") & (melted["Metric_label"] == "Player serve win %"),
+                (melted["Match_result"] == "Match lost") & (melted["Metric_label"] == "Points won on opponent's serve %"),
+            ],
+            [
+                "won_match_serve",
+                "won_match_return",
+                "lost_match_serve",
+                "lost_match_return",
+            ],
+            default="other"
         )
-
-        color_domain = [
-            "Win - Player serve win %",
-            "Win - Points won on opponent's serve %",
-            "Loss - Player serve win %",
-            "Loss - Points won on opponent's serve %",
-        ]
-
-        color_range = [
-            "#1f77b4",  # darker blue
-            "#9ecae1",  # lighter blue
-            "#d62728",  # darker red
-            "#f4a6a6",  # lighter red
-        ]
 
         bars = alt.Chart(melted).mark_bar(size=16).encode(
             x=alt.X(
@@ -319,30 +305,35 @@ if all(c in filtered.columns for c in serve_cols):
                 ),
             ),
             xOffset=alt.XOffset("Metric_label:N"),
-            y=alt.Y(
-                "Percentage:Q",
-                title="Percentage (%)"
-            ),
+            y=alt.Y("Percentage:Q", title="Percentage (%)"),
             color=alt.Color(
-                "Result_metric:N",
-                title="Bar meaning",
+                "Bar_color_group:N",
                 scale=alt.Scale(
-                    domain=color_domain,
-                    range=color_range
+                    domain=[
+                        "won_match_serve",
+                        "won_match_return",
+                        "lost_match_serve",
+                        "lost_match_return",
+                    ],
+                    range=[
+                        "#1f77b4",  # dark blue
+                        "#9ecae1",  # light blue
+                        "#d62728",  # dark red
+                        "#f4a6a6",  # light red
+                    ],
                 ),
-                legend=alt.Legend(orient="right")
+                legend=None
             ),
             tooltip=[
                 alt.Tooltip("Date:T", title="Date"),
                 alt.Tooltip("Competition:N", title="Competition"),
                 alt.Tooltip("Opponent:N", title="Opponent"),
-                alt.Tooltip("Match_result:N", title="Result"),
+                alt.Tooltip("Match_result:N", title="Match result"),
                 alt.Tooltip("Metric_label:N", title="Metric"),
                 alt.Tooltip("Percentage:Q", title="Percentage", format=".1f"),
             ],
         )
 
-        # Trendlines by metric
         trend_rows = []
         for metric_name, sub in melted.groupby("Metric_label"):
             sub = sub.sort_values("Match_index").copy()
@@ -361,11 +352,8 @@ if all(c in filtered.columns for c in serve_cols):
 
         trend_df = pd.concat(trend_rows, ignore_index=True)
 
-        lines = alt.Chart(trend_df).mark_line(strokeWidth=2).encode(
-            x=alt.X(
-                "Match_label_axis:N",
-                sort=match_order
-            ),
+        lines = alt.Chart(trend_df).mark_line(strokeWidth=2.5).encode(
+            x=alt.X("Match_label_axis:N", sort=match_order),
             xOffset=alt.XOffset("Metric_label:N"),
             y=alt.Y("Trend:Q"),
             detail="Metric_label:N",
@@ -379,6 +367,7 @@ if all(c in filtered.columns for c in serve_cols):
                     ],
                     range=["#08306b", "#fb8c00"]
                 ),
+                legend=alt.Legend(orient="right")
             ),
             tooltip=[
                 alt.Tooltip("Match_label_axis:N", title="Match"),
@@ -393,9 +382,12 @@ if all(c in filtered.columns for c in serve_cols):
         )
 
         st.altair_chart(serve_chart, use_container_width=True)
+
         st.caption(
-            "Blue shades = wins, red shades = losses. "
-            "Darker shade = Player serve win %, lighter shade = Points won on opponent's serve %."
+            "Bar colours: dark blue = player serve win % in matches won, "
+            "light blue = points won on opponent's serve % in matches won, "
+            "dark red = player serve win % in matches lost, "
+            "light red = points won on opponent's serve % in matches lost."
         )
     else:
         st.info("No serve data available under current filters.")
