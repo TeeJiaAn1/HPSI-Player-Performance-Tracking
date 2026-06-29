@@ -181,207 +181,100 @@ def plot_metric_with_trend(df_subset: pd.DataFrame, metric_col: str, y_label: st
     st.caption("Solid line = metric, second line = simple linear trend.")
 
 
-# --- Rally distribution grouped bar chart ---
+# --- Rally distribution as 3 separate bar charts ---
 st.subheader("Rally distribution over time")
 
-rally_dist_cols = [
-    "Rally_ShortDistribution_pct",
-    "Rally_MidDistribution_pct",
-    "Rally_LongDistribution_pct",
-]
 
-if all(c in filtered.columns for c in rally_dist_cols):
-    rally_df = filtered[
-        [
-            "Date",
-            "Competition",
-            "Opponent",
-            "Result_win",
-            "Rally_ShortDistribution_pct",
-            "Rally_MidDistribution_pct",
-            "Rally_LongDistribution_pct",
-        ]
+def plot_single_rally_bar(df_subset: pd.DataFrame, metric_col: str, chart_title: str):
+    if metric_col not in df_subset.columns:
+        st.info(f"{metric_col} not found in data.")
+        return
+
+    chart_df = df_subset[
+        ["Date", "Competition", "Opponent", "Result_win", metric_col]
     ].dropna().copy()
 
-    if not rally_df.empty:
-        rally_df = rally_df.sort_values("Date").reset_index(drop=True)
-        rally_df["Match_index"] = np.arange(len(rally_df), dtype=float)
+    if chart_df.empty:
+        st.info(f"No data available for {chart_title} under current filters.")
+        return
 
-        rally_df["Match_result"] = np.where(
-            rally_df["Result_win"] == 1,
-            "Match won",
-            "Match lost"
-        )
+    chart_df = chart_df.sort_values("Date").reset_index(drop=True)
 
-        rally_df["Match_label_full"] = (
-            rally_df["Opponent"].astype(str) + " | " +
-            rally_df["Competition"].astype(str)
-        )
+    chart_df["Match_result"] = np.where(
+        chart_df["Result_win"] == 1,
+        "Match won",
+        "Match lost"
+    )
 
-        rally_df["Match_label_axis"] = (
-            rally_df["Opponent"].astype(str) + " | " +
-            rally_df["Competition"].astype(str).str.slice(0, 28)
-        )
+    chart_df["Match_label_full"] = (
+        chart_df["Opponent"].astype(str) + " | " +
+        chart_df["Competition"].astype(str)
+    )
 
-        match_order = rally_df["Match_label_axis"].tolist()
+    chart_df["Match_label_axis"] = (
+        chart_df["Opponent"].astype(str) + " | " +
+        chart_df["Competition"].astype(str).str.slice(0, 28)
+    )
 
-        melted_rally = rally_df.melt(
-            id_vars=[
-                "Date",
-                "Competition",
-                "Opponent",
-                "Result_win",
-                "Match_result",
-                "Match_index",
-                "Match_label_full",
-                "Match_label_axis",
-            ],
-            value_vars=rally_dist_cols,
-            var_name="Metric",
-            value_name="Percentage",
-        )
+    match_order = chart_df["Match_label_axis"].tolist()
 
-        metric_labels = {
-            "Rally_ShortDistribution_pct": "Short rally %",
-            "Rally_MidDistribution_pct": "Mid rally %",
-            "Rally_LongDistribution_pct": "Long rally %",
-        }
-        melted_rally["Metric_label"] = melted_rally["Metric"].map(metric_labels)
-
-        # Use 3 shades of blue for wins, 3 shades of red for losses
-        melted_rally["Bar_color_group"] = np.select(
-            [
-                (melted_rally["Match_result"] == "Match won") & (melted_rally["Metric_label"] == "Short rally %"),
-                (melted_rally["Match_result"] == "Match won") & (melted_rally["Metric_label"] == "Mid rally %"),
-                (melted_rally["Match_result"] == "Match won") & (melted_rally["Metric_label"] == "Long rally %"),
-                (melted_rally["Match_result"] == "Match lost") & (melted_rally["Metric_label"] == "Short rally %"),
-                (melted_rally["Match_result"] == "Match lost") & (melted_rally["Metric_label"] == "Mid rally %"),
-                (melted_rally["Match_result"] == "Match lost") & (melted_rally["Metric_label"] == "Long rally %"),
-            ],
-            [
-                "won_short",
-                "won_mid",
-                "won_long",
-                "lost_short",
-                "lost_mid",
-                "lost_long",
-            ],
-            default="other"
-        )
-
-        bars = alt.Chart(melted_rally).mark_bar(size=12).encode(
-            x=alt.X(
-                "Match_label_axis:N",
-                title="Opponent | Competition",
-                sort=match_order,
-                axis=alt.Axis(
-                    labelAngle=-45,
-                    labelLimit=500,
-                    labelOverlap=False
-                ),
+    # single-metric chart: blue if won, red if lost
+    bars = alt.Chart(chart_df).mark_bar(size=22).encode(
+        x=alt.X(
+            "Match_label_axis:N",
+            title="Opponent | Competition",
+            sort=match_order,
+            axis=alt.Axis(
+                labelAngle=-45,
+                labelLimit=500,
+                labelOverlap=False
             ),
-            xOffset=alt.XOffset("Metric_label:N"),
-            y=alt.Y(
-                "Percentage:Q",
-                title="Rally distribution (%)"
+        ),
+        y=alt.Y(
+            f"{metric_col}:Q",
+            title="Percentage (%)"
+        ),
+        color=alt.Color(
+            "Match_result:N",
+            scale=alt.Scale(
+                domain=["Match won", "Match lost"],
+                range=["#1f77b4", "#d62728"]
             ),
-            color=alt.Color(
-                "Bar_color_group:N",
-                scale=alt.Scale(
-                    domain=[
-                        "won_short",
-                        "won_mid",
-                        "won_long",
-                        "lost_short",
-                        "lost_mid",
-                        "lost_long",
-                    ],
-                    range=[
-                        "#08519c",  # won short - dark blue
-                        "#3182bd",  # won mid - medium blue
-                        "#9ecae1",  # won long - light blue
-                        "#a50f15",  # lost short - dark red
-                        "#de2d26",  # lost mid - medium red
-                        "#fcbba1",  # lost long - light red
-                    ],
-                ),
-                legend=None
-            ),
-            tooltip=[
-                alt.Tooltip("Date:T", title="Date"),
-                alt.Tooltip("Competition:N", title="Competition"),
-                alt.Tooltip("Opponent:N", title="Opponent"),
-                alt.Tooltip("Match_result:N", title="Match result"),
-                alt.Tooltip("Metric_label:N", title="Metric"),
-                alt.Tooltip("Percentage:Q", title="Percentage", format=".1f"),
-            ],
-        )
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date"),
+            alt.Tooltip("Competition:N", title="Competition"),
+            alt.Tooltip("Opponent:N", title="Opponent"),
+            alt.Tooltip("Match_result:N", title="Match result"),
+            alt.Tooltip(f"{metric_col}:Q", title=chart_title, format=".1f"),
+        ],
+    ).properties(
+        height=320,
+        title=chart_title
+    )
 
-        # Optional trendlines for each rally type
-        trend_rows = []
-        for metric_name, sub in melted_rally.groupby("Metric_label"):
-            sub = sub.sort_values("Match_index").copy()
-            x = sub["Match_index"].values.astype(float)
-            y = sub["Percentage"].values.astype(float)
+    st.altair_chart(bars, use_container_width=True)
+    st.caption("Blue = match won, red = match lost.")
 
-            if len(y) >= 2 and not np.allclose(y, y[0]):
-                coef = np.polyfit(x, y, 1)
-                sub["Trend"] = coef[0] * x + coef[1]
-            else:
-                sub["Trend"] = y
 
-            trend_rows.append(
-                sub[["Match_label_axis", "Metric_label", "Trend"]]
-            )
+plot_single_rally_bar(
+    filtered,
+    "Rally_ShortDistribution_pct",
+    "Short rally distribution (%)"
+)
 
-        trend_df = pd.concat(trend_rows, ignore_index=True)
+plot_single_rally_bar(
+    filtered,
+    "Rally_MidDistribution_pct",
+    "Mid rally distribution (%)"
+)
 
-        lines = alt.Chart(trend_df).mark_line(strokeWidth=2.2).encode(
-            x=alt.X("Match_label_axis:N", sort=match_order),
-            xOffset=alt.XOffset("Metric_label:N"),
-            y=alt.Y("Trend:Q"),
-            detail="Metric_label:N",
-            color=alt.Color(
-                "Metric_label:N",
-                title="Trendline",
-                scale=alt.Scale(
-                    domain=[
-                        "Short rally %",
-                        "Mid rally %",
-                        "Long rally %",
-                    ],
-                    range=[
-                        "#08306b",
-                        "#238b45",
-                        "#ff8c00",
-                    ]
-                ),
-                legend=alt.Legend(orient="right")
-            ),
-            tooltip=[
-                alt.Tooltip("Match_label_axis:N", title="Match"),
-                alt.Tooltip("Metric_label:N", title="Trendline"),
-                alt.Tooltip("Trend:Q", title="Trend", format=".1f"),
-            ],
-        )
-
-        rally_chart = (bars + lines).properties(
-            height=450,
-            title="Rally distribution by match"
-        )
-
-        st.altair_chart(rally_chart, use_container_width=True)
-
-        st.caption(
-            "Bar colours show match result and rally type. "
-            "Blue shades = matches won, red shades = matches lost. "
-            "Within each result, darker shade = short rallies, medium shade = mid rallies, lighter shade = long rallies."
-        )
-    else:
-        st.info("No rally distribution data available under current filters.")
-else:
-    st.info("Rally distribution columns not found in data.")
-
+plot_single_rally_bar(
+    filtered,
+    "Rally_LongDistribution_pct",
+    "Long rally distribution (%)"
+)
 # --- Work–rest time-series ---
 st.subheader("Work–rest time-series")
 
