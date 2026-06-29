@@ -303,195 +303,129 @@ plot_single_rally_bar(
     "Rally_LongDistribution_pct",
     "Long rally distribution (%)"
 )
-# --- Work–rest time-series ---
-st.subheader("Work–rest time-series")
+# --- Work–rest bar charts with trendlines ---
+st.subheader("Work–rest over time")
 
-st.markdown("**Average rally duration (s) over time**")
-plot_metric_with_trend(
-    filtered,
-    "Average_Rally_Duration",
-    y_label="Average rally duration (s)",
-)
 
-st.markdown("**Average rest duration (s) over time**")
-plot_metric_with_trend(
-    filtered,
-    "Average_Rest_Duration",
-    y_label="Average rest duration (s)",
-)
+def plot_single_workrest_bar(
+    df_subset: pd.DataFrame,
+    metric_col: str,
+    chart_title: str,
+    y_axis_title: str,
+):
+    if metric_col not in df_subset.columns:
+        st.info(f"{metric_col} not found in data.")
+        return
 
-# --- Combined serve chart: grouped bars per match, clearer styling ---
-st.subheader("Serve performance over time")
-
-serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
-
-if all(c in filtered.columns for c in serve_cols):
-    serve_df = filtered[
-        ["Date", "Competition", "Opponent", "Result_win"] + serve_cols
+    chart_df = df_subset[
+        ["Date", "Competition", "Opponent", "Result_win", metric_col]
     ].dropna().copy()
 
-    if not serve_df.empty:
-        serve_df = serve_df.sort_values("Date").reset_index(drop=True)
-        serve_df["Match_index"] = np.arange(len(serve_df), dtype=float)
+    if chart_df.empty:
+        st.info(f"No data available for {chart_title} under current filters.")
+        return
 
-        serve_df["Match_result"] = np.where(
-            serve_df["Result_win"] == 1,
-            "Match won",
-            "Match lost"
-        )
+    chart_df = chart_df.sort_values("Date").reset_index(drop=True)
+    chart_df["Match_index"] = np.arange(len(chart_df), dtype=float)
 
-        serve_df["Match_label_full"] = (
-            serve_df["Opponent"].astype(str) + " | " +
-            serve_df["Competition"].astype(str)
-        )
+    chart_df["Match_result"] = np.where(
+        chart_df["Result_win"] == 1,
+        "Match won",
+        "Match lost"
+    )
 
-        serve_df["Match_label_axis"] = (
-            serve_df["Opponent"].astype(str) + " | " +
-            serve_df["Competition"].astype(str).str.slice(0, 28)
-        )
+    chart_df["Match_label_full"] = (
+        chart_df["Opponent"].astype(str) + " | " +
+        chart_df["Competition"].astype(str)
+    )
 
-        match_order = serve_df["Match_label_axis"].tolist()
+    chart_df["Match_label_axis"] = (
+        chart_df["Opponent"].astype(str) + " | " +
+        chart_df["Competition"].astype(str).str.slice(0, 28)
+    )
 
-        melted = serve_df.melt(
-            id_vars=[
-                "Date",
-                "Competition",
-                "Opponent",
-                "Result_win",
-                "Match_result",
-                "Match_index",
-                "Match_label_full",
-                "Match_label_axis",
-            ],
-            value_vars=serve_cols,
-            var_name="Metric",
-            value_name="Percentage",
-        )
+    match_order = chart_df["Match_label_axis"].tolist()
 
-        metric_labels = {
-            "Player_Serve_Win_pct": "Player serve win %",
-            "Opponent_Serve_Loss_pct": "Points won on opponent's serve %",
-        }
-        melted["Metric_label"] = melted["Metric"].map(metric_labels)
+    # Compute simple linear trend
+    x = chart_df["Match_index"].values.astype(float)
+    y = chart_df[metric_col].values.astype(float)
 
-        # Four bar shades, but no legend shown for them
-        melted["Bar_color_group"] = np.select(
-            [
-                (melted["Match_result"] == "Match won") & (melted["Metric_label"] == "Player serve win %"),
-                (melted["Match_result"] == "Match won") & (melted["Metric_label"] == "Points won on opponent's serve %"),
-                (melted["Match_result"] == "Match lost") & (melted["Metric_label"] == "Player serve win %"),
-                (melted["Match_result"] == "Match lost") & (melted["Metric_label"] == "Points won on opponent's serve %"),
-            ],
-            [
-                "won_match_serve",
-                "won_match_return",
-                "lost_match_serve",
-                "lost_match_return",
-            ],
-            default="other"
-        )
-
-        bars = alt.Chart(melted).mark_bar(size=16).encode(
-            x=alt.X(
-                "Match_label_axis:N",
-                title="Opponent | Competition",
-                sort=match_order,
-                axis=alt.Axis(
-                    labelAngle=-45,
-                    labelLimit=500,
-                    labelOverlap=False
-                ),
-            ),
-            xOffset=alt.XOffset("Metric_label:N"),
-            y=alt.Y("Percentage:Q", title="Percentage (%)"),
-            color=alt.Color(
-                "Bar_color_group:N",
-                scale=alt.Scale(
-                    domain=[
-                        "won_match_serve",
-                        "won_match_return",
-                        "lost_match_serve",
-                        "lost_match_return",
-                    ],
-                    range=[
-                        "#1f77b4",  # dark blue
-                        "#9ecae1",  # light blue
-                        "#d62728",  # dark red
-                        "#f4a6a6",  # light red
-                    ],
-                ),
-                legend=None
-            ),
-            tooltip=[
-                alt.Tooltip("Date:T", title="Date"),
-                alt.Tooltip("Competition:N", title="Competition"),
-                alt.Tooltip("Opponent:N", title="Opponent"),
-                alt.Tooltip("Match_result:N", title="Match result"),
-                alt.Tooltip("Metric_label:N", title="Metric"),
-                alt.Tooltip("Percentage:Q", title="Percentage", format=".1f"),
-            ],
-        )
-
-        trend_rows = []
-        for metric_name, sub in melted.groupby("Metric_label"):
-            sub = sub.sort_values("Match_index").copy()
-            x = sub["Match_index"].values.astype(float)
-            y = sub["Percentage"].values.astype(float)
-
-            if len(y) >= 2 and not np.allclose(y, y[0]):
-                coef = np.polyfit(x, y, 1)
-                sub["Trend"] = coef[0] * x + coef[1]
-            else:
-                sub["Trend"] = y
-
-            trend_rows.append(
-                sub[["Match_label_axis", "Metric_label", "Trend"]]
-            )
-
-        trend_df = pd.concat(trend_rows, ignore_index=True)
-
-        lines = alt.Chart(trend_df).mark_line(strokeWidth=2.5).encode(
-            x=alt.X("Match_label_axis:N", sort=match_order),
-            xOffset=alt.XOffset("Metric_label:N"),
-            y=alt.Y("Trend:Q"),
-            detail="Metric_label:N",
-            color=alt.Color(
-                "Metric_label:N",
-                title="Trendline",
-                scale=alt.Scale(
-                    domain=[
-                        "Player serve win %",
-                        "Points won on opponent's serve %",
-                    ],
-                    range=["#08306b", "#fb8c00"]
-                ),
-                legend=alt.Legend(orient="right")
-            ),
-            tooltip=[
-                alt.Tooltip("Match_label_axis:N", title="Match"),
-                alt.Tooltip("Metric_label:N", title="Trendline"),
-                alt.Tooltip("Trend:Q", title="Trend", format=".1f"),
-            ],
-        )
-
-        serve_chart = (bars + lines).properties(
-            height=450,
-            title="Player serve win % vs points won on opponent's serve %"
-        )
-
-        st.altair_chart(serve_chart, use_container_width=True)
-
-        st.caption(
-            "Bar colours: dark blue = player serve win % in matches won, "
-            "light blue = points won on opponent's serve % in matches won, "
-            "dark red = player serve win % in matches lost, "
-            "light red = points won on opponent's serve % in matches lost."
-        )
+    if len(y) >= 2 and not np.allclose(y, y[0]):
+        coef = np.polyfit(x, y, 1)
+        chart_df["Trend"] = coef[0] * x + coef[1]
     else:
-        st.info("No serve data available under current filters.")
-else:
-    st.info("Serve columns not found in data.")
+        chart_df["Trend"] = y
 
+    bars = alt.Chart(chart_df).mark_bar(size=22).encode(
+        x=alt.X(
+            "Match_label_axis:N",
+            title="Opponent | Competition",
+            sort=match_order,
+            axis=alt.Axis(
+                labelAngle=-45,
+                labelLimit=500,
+                labelOverlap=False
+            ),
+        ),
+        y=alt.Y(
+            f"{metric_col}:Q",
+            title=y_axis_title
+        ),
+        color=alt.Color(
+            "Match_result:N",
+            scale=alt.Scale(
+                domain=["Match won", "Match lost"],
+                range=["#1f77b4", "#d62728"]
+            ),
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date"),
+            alt.Tooltip("Competition:N", title="Competition"),
+            alt.Tooltip("Opponent:N", title="Opponent"),
+            alt.Tooltip("Match_result:N", title="Match result"),
+            alt.Tooltip(f"{metric_col}:Q", title=chart_title, format=".2f"),
+        ],
+    )
+
+    line = alt.Chart(chart_df).mark_line(
+        color="#222222",
+        strokeWidth=2.5,
+        point=False
+    ).encode(
+        x=alt.X(
+            "Match_label_axis:N",
+            sort=match_order
+        ),
+        y=alt.Y("Trend:Q"),
+        tooltip=[
+            alt.Tooltip("Match_label_full:N", title="Match"),
+            alt.Tooltip("Trend:Q", title="Trend", format=".2f"),
+        ],
+    )
+
+    chart = (bars + line).properties(
+        height=320,
+        title=chart_title
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+    st.caption("Blue = match won, red = match lost, black line = trend.")
+
+
+plot_single_workrest_bar(
+    filtered,
+    "Average_Rally_Duration",
+    "Average rally duration (s)",
+    "Average rally duration (s)"
+)
+
+plot_single_workrest_bar(
+    filtered,
+    "Average_Rest_Duration",
+    "Average rest duration (s)",
+    "Average rest duration (s)"
+)
 # --- Detailed error and point-gain profiles ---
 st.subheader("Error and point-gain profiles over time")
 
