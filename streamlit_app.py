@@ -255,10 +255,10 @@ def plot_single_metric_bar_with_trend(
     )
 
     chart = (bars + line).properties(
-        height=320,
-        title=chart_title
+        height=320
     )
 
+    st.markdown(f"**{chart_title}**")
     st.altair_chart(chart, use_container_width=True)
     st.caption("Blue = match won, red = match lost, black line = trend.")
 
@@ -311,6 +311,7 @@ plot_single_metric_bar_with_trend(
 
 # --- Combined serve chart: grouped bars per match, clearer styling ---
 st.subheader("Serve performance over time")
+st.markdown("**Player serve win % vs points won on opponent's serve %**")
 
 serve_cols = ["Player_Serve_Win_pct", "Opponent_Serve_Loss_pct"]
 
@@ -402,10 +403,10 @@ if all(c in filtered.columns for c in serve_cols):
                         "lost_match_return",
                     ],
                     range=[
-                        "#1f77b4",  # dark blue
-                        "#9ecae1",  # light blue
-                        "#d62728",  # dark red
-                        "#f4a6a6",  # light red
+                        "#1f77b4",
+                        "#9ecae1",
+                        "#d62728",
+                        "#f4a6a6",
                     ],
                 ),
                 legend=None
@@ -463,8 +464,7 @@ if all(c in filtered.columns for c in serve_cols):
         )
 
         serve_chart = (bars + lines).properties(
-            height=450,
-            title="Player serve win % vs points won on opponent's serve %"
+            height=450
         )
 
         st.altair_chart(serve_chart, use_container_width=True)
